@@ -1,13 +1,15 @@
 """
 QuickAPI Chat Memory Module
 
-In-memory conversation management for chat applications.
+Conversation management for chat applications with pluggable storage backends.
+Supports in-memory storage (default) and can be extended for SQLite, PostgreSQL, etc.
 """
 
 import time
 import uuid
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Protocol
 from dataclasses import dataclass, field
+from abc import ABC, abstractmethod
 
 from ..utils import get_logger
 
@@ -35,23 +37,98 @@ class ChatMessage:
         return f"{self.role}: {self.content}"
 
 
+class ChatMemoryBackend(ABC):
+    """Abstract base class for chat memory storage backends"""
+    
+    @abstractmethod
+    def add_message(self, conversation_id: str, message: ChatMessage) -> None:
+        """Add a message to a conversation"""
+        pass
+    
+    @abstractmethod
+    def get_messages(self, conversation_id: str, limit: Optional[int] = None) -> List[ChatMessage]:
+        """Get messages from a conversation"""
+        pass
+    
+    @abstractmethod
+    def clear_conversation(self, conversation_id: str) -> None:
+        """Clear all messages in a conversation"""
+        pass
+    
+    @abstractmethod
+    def delete_conversation(self, conversation_id: str) -> bool:
+        """Delete a conversation"""
+        pass
+    
+    @abstractmethod
+    def list_conversations(self) -> List[str]:
+        """List all conversation IDs"""
+        pass
+
+
+class InMemoryChatBackend(ChatMemoryBackend):
+    """In-memory storage backend for chat messages"""
+    
+    def __init__(self):
+        self.conversations: Dict[str, List[ChatMessage]] = {}
+    
+    def add_message(self, conversation_id: str, message: ChatMessage) -> None:
+        if conversation_id not in self.conversations:
+            self.conversations[conversation_id] = []
+        self.conversations[conversation_id].append(message)
+    
+    def get_messages(self, conversation_id: str, limit: Optional[int] = None) -> List[ChatMessage]:
+        messages = self.conversations.get(conversation_id, [])
+        if limit is None:
+            return messages.copy()
+        return messages[-limit:] if limit > 0 else []
+    
+    def clear_conversation(self, conversation_id: str) -> None:
+        if conversation_id in self.conversations:
+            self.conversations[conversation_id].clear()
+    
+    def delete_conversation(self, conversation_id: str) -> bool:
+        if conversation_id in self.conversations:
+            del self.conversations[conversation_id]
+            return True
+        return False
+    
+    def list_conversations(self) -> List[str]:
+        return list(self.conversations.keys())
+
+
 class ChatMemory:
     """
-    In-memory chat conversation management.
+    Chat conversation management with pluggable storage backends.
     
     Provides functionality to store, retrieve, and manage chat messages
     with conversation history and context window management.
+    
+    Supports multiple storage backends:
+    - In-memory (default)
+    - SQLite (future)
+    - PostgreSQL (future)
+    - Redis (future)
     """
     
-    def __init__(self, max_messages: int = 100, max_context: int = 10):
+    def __init__(
+        self,
+        conversation_id: str,
+        backend: Optional[ChatMemoryBackend] = None,
+        max_messages: int = 100,
+        max_context: int = 10
+    ):
         """
         Initialize chat memory.
         
         Args:
-            max_messages: Maximum number of messages to store
+            conversation_id: Unique conversation identifier
+            backend: Storage backend (defaults to in-memory)
+            max_messages: Maximum number of messages to store per conversation
             max_context: Maximum number of messages to include in context
         """
-        self.messages: List[ChatMessage] = []
+        self.conversation_id = conversation_id
+        self.backend = backend or InMemoryChatBackend()
         self.max_messages = max_messages
         self.max_context = max_context
     
@@ -73,11 +150,15 @@ class ChatMemory:
             metadata=metadata or {}
         )
         
-        self.messages.append(message)
+        self.backend.add_message(self.conversation_id, message)
         
         # Trim if exceeding max messages
-        if len(self.messages) > self.max_messages:
-            self.messages = self.messages[-self.max_messages:]
+        messages = self.backend.get_messages(self.conversation_id)
+        if len(messages) > self.max_messages:
+            # Clear and re-add only the last max_messages
+            self.backend.clear_conversation(self.conversation_id)
+            for msg in messages[-self.max_messages:]:
+                self.backend.add_message(self.conversation_id, msg)
         
         return message
     
@@ -91,9 +172,7 @@ class ChatMemory:
         Returns:
             List of messages
         """
-        if limit is None:
-            return self.messages.copy()
-        return self.messages[-limit:] if limit > 0 else []
+        return self.backend.get_messages(self.conversation_id, limit)
     
     def get_context(self, include_system: bool = True) -> List[Dict[str, str]]:
         """
@@ -131,23 +210,25 @@ class ChatMemory:
         Returns:
             The last message or None
         """
-        if not self.messages:
+        messages = self.backend.get_messages(self.conversation_id)
+        
+        if not messages:
             return None
         
         if role is None:
-            return self.messages[-1]
+            return messages[-1]
         
         # Find last message with specified role
-        for msg in reversed(self.messages):
+        for msg in reversed(messages):
             if msg.role == role:
                 return msg
         
         return None
     
     def clear(self):
-        """Clear all messages"""
-        self.messages.clear()
-        logger.info("Chat memory cleared")
+        """Clear all messages in this conversation"""
+        self.backend.clear_conversation(self.conversation_id)
+        logger.info(f"Chat memory cleared for conversation: {self.conversation_id}")
     
     def trim_to_last(self, n: int):
         """
@@ -156,28 +237,18 @@ class ChatMemory:
         Args:
             n: Number of messages to keep
         """
+        messages = self.backend.get_messages(self.conversation_id)
+        
         if n >= 0:
-            self.messages = self.messages[-n:]
+            trimmed = messages[-n:]
         else:
-            self.messages.clear()
+            trimmed = []
         
-        logger.info(f"Chat memory trimmed to last {n} messages")
-    
-    def remove_messages(self, indices: List[int]):
-        """
-        Remove messages by indices.
+        self.backend.clear_conversation(self.conversation_id)
+        for msg in trimmed:
+            self.backend.add_message(self.conversation_id, msg)
         
-        Args:
-            indices: List of indices to remove
-        """
-        # Sort indices in descending order to avoid shifting
-        sorted_indices = sorted(indices, reverse=True)
-        
-        for idx in sorted_indices:
-            if 0 <= idx < len(self.messages):
-                del self.messages[idx]
-        
-        logger.info(f"Removed {len(indices)} messages from chat memory")
+        logger.info(f"Chat memory trimmed to last {n} messages for conversation: {self.conversation_id}")
     
     def get_conversation_summary(self) -> Dict[str, Any]:
         """
@@ -186,26 +257,30 @@ class ChatMemory:
         Returns:
             Dictionary with conversation statistics
         """
-        if not self.messages:
+        messages = self.backend.get_messages(self.conversation_id)
+        
+        if not messages:
             return {
+                "conversation_id": self.conversation_id,
                 "total_messages": 0,
                 "user_messages": 0,
                 "assistant_messages": 0,
                 "system_messages": 0
             }
         
-        user_count = sum(1 for msg in self.messages if msg.role == "user")
-        assistant_count = sum(1 for msg in self.messages if msg.role == "assistant")
-        system_count = sum(1 for msg in self.messages if msg.role == "system")
+        user_count = sum(1 for msg in messages if msg.role == "user")
+        assistant_count = sum(1 for msg in messages if msg.role == "assistant")
+        system_count = sum(1 for msg in messages if msg.role == "system")
         
         # Get time range
-        timestamps = [msg.timestamp for msg in self.messages]
+        timestamps = [msg.timestamp for msg in messages]
         start_time = min(timestamps)
         end_time = max(timestamps)
         duration = end_time - start_time
         
         return {
-            "total_messages": len(self.messages),
+            "conversation_id": self.conversation_id,
+            "total_messages": len(messages),
             "user_messages": user_count,
             "assistant_messages": assistant_count,
             "system_messages": system_count,
@@ -224,16 +299,18 @@ class ChatMemory:
         Returns:
             Exported conversation data
         """
+        messages = self.backend.get_messages(self.conversation_id)
+        
         if format == "dict":
-            return [msg.to_dict() for msg in self.messages]
+            return [msg.to_dict() for msg in messages]
         
         elif format == "json":
             import json
-            return json.dumps([msg.to_dict() for msg in self.messages], indent=2)
+            return json.dumps([msg.to_dict() for msg in messages], indent=2)
         
         elif format == "txt":
             lines = []
-            for msg in self.messages:
+            for msg in messages:
                 timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(msg.timestamp))
                 lines.append(f"[{timestamp}] {msg.role}: {msg.content}")
             return "\n".join(lines)
@@ -253,12 +330,13 @@ class ChatMemory:
         
         if format == "dict":
             for msg_data in data:
-                self.messages.append(ChatMessage(
+                message = ChatMessage(
                     role=msg_data["role"],
                     content=msg_data["content"],
                     timestamp=msg_data.get("timestamp", time.time()),
                     metadata=msg_data.get("metadata", {})
-                ))
+                )
+                self.backend.add_message(self.conversation_id, message)
         
         elif format == "json":
             import json
@@ -284,7 +362,8 @@ class ChatMemory:
         else:
             raise ValueError(f"Unsupported import format: {format}")
         
-        logger.info(f"Loaded {len(self.messages)} messages from {format} format")
+        messages = self.backend.get_messages(self.conversation_id)
+        logger.info(f"Loaded {len(messages)} messages from {format} format for conversation: {self.conversation_id}")
     
     def search_messages(self, query: str, role: Optional[str] = None) -> List[ChatMessage]:
         """
@@ -297,10 +376,11 @@ class ChatMemory:
         Returns:
             List of matching messages
         """
+        messages = self.backend.get_messages(self.conversation_id)
         query_lower = query.lower()
         matching_messages = []
         
-        for msg in self.messages:
+        for msg in messages:
             if role and msg.role != role:
                 continue
             
@@ -316,27 +396,41 @@ class ChatMemory:
         Returns:
             Estimated token count (rough approximation)
         """
-        total_chars = sum(len(msg.content) for msg in self.messages)
+        messages = self.backend.get_messages(self.conversation_id)
+        total_chars = sum(len(msg.content) for msg in messages)
         # Rough approximation: ~4 characters per token
         return total_chars // 4
 
 
 class ConversationManager:
     """
-    Manages multiple conversations with session support.
+    Manages multiple conversations with session support and shared storage backend.
     """
     
-    def __init__(self):
-        """Initialize conversation manager"""
+    def __init__(self, backend: Optional[ChatMemoryBackend] = None):
+        """
+        Initialize conversation manager.
+        
+        Args:
+            backend: Shared storage backend for all conversations (defaults to in-memory)
+        """
+        self.backend = backend or InMemoryChatBackend()
         self.conversations: Dict[str, ChatMemory] = {}
         self.active_conversation: Optional[str] = None
     
-    def create_conversation(self, conversation_id: Optional[str] = None) -> str:
+    def create_conversation(
+        self,
+        conversation_id: Optional[str] = None,
+        max_messages: int = 100,
+        max_context: int = 10
+    ) -> str:
         """
         Create a new conversation.
         
         Args:
-            conversation_id: Optional conversation ID
+            conversation_id: Optional conversation ID (auto-generated if not provided)
+            max_messages: Maximum messages to store
+            max_context: Maximum messages in context window
             
         Returns:
             Conversation ID
@@ -344,7 +438,12 @@ class ConversationManager:
         if conversation_id is None:
             conversation_id = str(uuid.uuid4())
         
-        self.conversations[conversation_id] = ChatMemory()
+        self.conversations[conversation_id] = ChatMemory(
+            conversation_id=conversation_id,
+            backend=self.backend,
+            max_messages=max_messages,
+            max_context=max_context
+        )
         self.active_conversation = conversation_id
         
         logger.info(f"Created new conversation: {conversation_id}")
@@ -352,15 +451,41 @@ class ConversationManager:
     
     def get_conversation(self, conversation_id: str) -> Optional[ChatMemory]:
         """
-        Get a conversation by ID.
+        Get a conversation by ID. Creates it if it doesn't exist.
         
         Args:
             conversation_id: Conversation ID
             
         Returns:
-            Chat memory or None if not found
+            Chat memory instance
         """
+        if conversation_id not in self.conversations:
+            # Check if conversation exists in backend
+            if conversation_id in self.backend.list_conversations():
+                self.conversations[conversation_id] = ChatMemory(
+                    conversation_id=conversation_id,
+                    backend=self.backend
+                )
+            else:
+                return None
+        
         return self.conversations.get(conversation_id)
+    
+    def get_or_create_conversation(self, conversation_id: str) -> ChatMemory:
+        """
+        Get a conversation by ID, creating it if it doesn't exist.
+        
+        Args:
+            conversation_id: Conversation ID
+            
+        Returns:
+            Chat memory instance
+        """
+        conv = self.get_conversation(conversation_id)
+        if conv is None:
+            self.create_conversation(conversation_id)
+            conv = self.conversations[conversation_id]
+        return conv
     
     def set_active_conversation(self, conversation_id: str):
         """
@@ -388,7 +513,7 @@ class ConversationManager:
     
     def delete_conversation(self, conversation_id: str) -> bool:
         """
-        Delete a conversation.
+        Delete a conversation from both memory and backend.
         
         Args:
             conversation_id: Conversation ID to delete
@@ -396,26 +521,30 @@ class ConversationManager:
         Returns:
             True if deleted, False if not found
         """
+        # Remove from memory
         if conversation_id in self.conversations:
             del self.conversations[conversation_id]
-            
-            # Clear active if it was the deleted one
-            if self.active_conversation == conversation_id:
-                self.active_conversation = None
-            
-            logger.info(f"Deleted conversation: {conversation_id}")
-            return True
         
-        return False
+        # Remove from backend
+        deleted = self.backend.delete_conversation(conversation_id)
+        
+        # Clear active if it was the deleted one
+        if self.active_conversation == conversation_id:
+            self.active_conversation = None
+        
+        if deleted:
+            logger.info(f"Deleted conversation: {conversation_id}")
+        
+        return deleted
     
     def list_conversations(self) -> List[str]:
         """
-        List all conversation IDs.
+        List all conversation IDs from backend.
         
         Returns:
             List of conversation IDs
         """
-        return list(self.conversations.keys())
+        return self.backend.list_conversations()
     
     def get_conversation_summaries(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -425,6 +554,7 @@ class ConversationManager:
             Dictionary mapping conversation IDs to summaries
         """
         summaries = {}
-        for conv_id, memory in self.conversations.items():
-            summaries[conv_id] = memory.get_conversation_summary()
+        for conv_id in self.backend.list_conversations():
+            conv = self.get_or_create_conversation(conv_id)
+            summaries[conv_id] = conv.get_conversation_summary()
         return summaries

@@ -32,10 +32,10 @@ class EmbeddingProvider(ABC):
 class OpenAIEmbeddingProvider(EmbeddingProvider):
     """OpenAI embedding provider"""
     
-    def __init__(self, api_key: str, model: str = "text-embedding-ada-002"):
+    def __init__(self, api_key: str, model: str = "text-embedding-ada-002", base_url: Optional[str] = None):
         try:
             import openai
-            self.client = openai.AsyncOpenAI(api_key=api_key)
+            self.client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
             self.model = model
         except ImportError:
             raise DependencyError("openai", "Install with: pip install quickapi[ai]")
@@ -157,9 +157,10 @@ class Embeddings:
         if provider == "openai":
             api_key = kwargs.get("api_key")
             model = kwargs.get("model", "text-embedding-ada-002")
+            base_url = kwargs.get("base_url")
             if not api_key:
                 raise ValueError("OpenAI provider requires 'api_key' parameter")
-            return OpenAIEmbeddingProvider(api_key, model)
+            return OpenAIEmbeddingProvider(api_key, model, base_url)
         
         elif provider == "sentence-transformers":
             model_name = kwargs.get("model_name", "all-MiniLM-L6-v2")

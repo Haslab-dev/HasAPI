@@ -7,16 +7,16 @@ Minimal RAG (Retrieval-Augmented Generation) example:
 3. Chat with your documents
 4. AI answers based on document context
 
-No complex dependencies - just httpx and basic math!
+Uses QuickAPI's built-in AI module for LLM and embeddings!
 """
 
 import os
-import httpx
 import json
-import math
-from typing import List, Dict, Tuple
+from typing import List, Dict
 from quickapi import QuickAPI, JSONResponse
 from quickapi.middleware import CORSMiddleware
+from quickapi.ai import LLM, RAG, Embeddings, ConversationManager
+from quickapi.ai.vectors import InMemoryVectorStore
 
 # Load environment variables
 from dotenv import load_dotenv
@@ -34,9 +34,35 @@ CHAT_MODEL = os.getenv("CHAT_MODEL", "deepseek/deepseek-chat")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "openai/text-embedding-3-small")
 # ============================================================================
 
-# In-memory storage
-documents: List[Dict] = []  # Stores: {id, text, embedding, metadata}
-conversations: Dict[str, List[Dict[str, str]]] = {}
+# Initialize LLM with Vercel AI Gateway
+llm = LLM(
+    provider="openai",
+    api_key=GATEWAY_API_KEY,
+    base_url=GATEWAY_URL
+)
+
+# Initialize Embeddings with Vercel AI Gateway
+embeddings = Embeddings(
+    provider="openai",
+    api_key=GATEWAY_API_KEY,
+    model=EMBEDDING_MODEL,
+    base_url=GATEWAY_URL
+)
+
+# Initialize vector store for document embeddings (in-memory, can be swapped with persistent storage)
+vector_store = InMemoryVectorStore(dimension=embeddings.get_dimension())
+
+# Initialize RAG system (combines LLM, Embeddings, and VectorStore)
+rag = RAG(
+    embeddings=embeddings,
+    llm=llm,
+    vector_store=vector_store,
+    top_k=3,
+    similarity_threshold=0.3  # Lower threshold for better recall
+)
+
+# Initialize conversation manager for chat history
+conversation_manager = ConversationManager()
 
 # Create the app
 app = QuickAPI(title="Simple RAG", version="1.0.0", debug=True)
@@ -44,90 +70,9 @@ app.middleware(CORSMiddleware(allow_origins=["*"]))
 
 
 # ============================================================================
-# Vector/Embedding Functions
+# Helper Functions
 # ============================================================================
-
-async def get_embedding(text: str) -> List[float]:
-    """Get embedding vector for text using Vercel AI Gateway"""
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"{GATEWAY_URL}/embeddings",
-            headers={
-                "Authorization": f"Bearer {GATEWAY_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": EMBEDDING_MODEL,
-                "input": text
-            },
-            timeout=30.0
-        )
-        
-        if response.status_code != 200:
-            raise Exception(f"Embedding API Error: {response.status_code} - {response.text}")
-        
-        result = response.json()
-        return result["data"][0]["embedding"]
-
-
-def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
-    """Calculate cosine similarity between two vectors"""
-    dot_product = sum(a * b for a, b in zip(vec1, vec2))
-    magnitude1 = math.sqrt(sum(a * a for a in vec1))
-    magnitude2 = math.sqrt(sum(b * b for b in vec2))
-    
-    if magnitude1 == 0 or magnitude2 == 0:
-        return 0.0
-    
-    return dot_product / (magnitude1 * magnitude2)
-
-
-def search_documents(query_embedding: List[float], top_k: int = 3) -> List[Dict]:
-    """Search documents by similarity to query embedding"""
-    if not documents:
-        return []
-    
-    # Calculate similarity scores
-    results = []
-    for doc in documents:
-        similarity = cosine_similarity(query_embedding, doc["embedding"])
-        results.append({
-            "id": doc["id"],
-            "text": doc["text"],
-            "metadata": doc.get("metadata", {}),
-            "similarity": similarity
-        })
-    
-    # Sort by similarity (highest first)
-    results.sort(key=lambda x: x["similarity"], reverse=True)
-    
-    # Return top K results
-    return results[:top_k]
-
-
-async def call_llm(messages: List[Dict[str, str]], temperature: float = 0.7) -> str:
-    """Call LLM via Vercel AI Gateway"""
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"{GATEWAY_URL}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {GATEWAY_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": CHAT_MODEL,
-                "messages": messages,
-                "temperature": temperature,
-                "stream": False
-            },
-            timeout=30.0
-        )
-        
-        if response.status_code != 200:
-            raise Exception(f"API Error: {response.status_code} - {response.text}")
-        
-        result = response.json()
-        return result["choices"][0]["message"]["content"]
+# (RAG class handles most of the heavy lifting now!)
 
 
 # ============================================================================
@@ -136,7 +81,7 @@ async def call_llm(messages: List[Dict[str, str]], temperature: float = 0.7) -> 
 
 @app.post("/api/documents")
 async def upload_document(request):
-    """Upload a document and store its embedding"""
+    """Upload a document and store it in RAG system"""
     body = await request.json()
     text = body.get("text", "")
     metadata = body.get("metadata", {})
@@ -145,24 +90,15 @@ async def upload_document(request):
         return JSONResponse({"error": "Text is required"}, status_code=400)
     
     try:
-        # Generate embedding
-        embedding = await get_embedding(text)
-        
-        # Store document
-        doc_id = f"doc_{len(documents) + 1}"
-        doc = {
-            "id": doc_id,
-            "text": text,
-            "embedding": embedding,
-            "metadata": metadata
-        }
-        documents.append(doc)
+        # Add document to RAG system (handles embedding + vector storage automatically)
+        # add_texts expects a list, so we pass [text] and [metadata]
+        doc_ids = await rag.add_texts([text], metadata=[metadata] if metadata else None)
         
         return JSONResponse({
-            "id": doc_id,
+            "id": doc_ids[0] if doc_ids else "unknown",
             "text": text[:100] + "..." if len(text) > 100 else text,
             "metadata": metadata,
-            "embedding_size": len(embedding)
+            "embedding_dimension": embeddings.get_dimension()
         })
     
     except Exception as e:
@@ -174,13 +110,15 @@ async def upload_document(request):
 
 @app.get("/api/documents")
 async def list_documents(request):
-    """List all documents"""
+    """List all documents from RAG system"""
+    documents = await rag.list_documents()
+    
     return JSONResponse({
         "documents": [
             {
-                "id": doc["id"],
-                "text": doc["text"][:100] + "..." if len(doc["text"]) > 100 else doc["text"],
-                "metadata": doc.get("metadata", {})
+                "id": doc.id,
+                "text": doc.text[:100] + "..." if len(doc.text) > 100 else doc.text,
+                "metadata": doc.metadata
             }
             for doc in documents
         ],
@@ -190,17 +128,22 @@ async def list_documents(request):
 
 @app.delete("/api/documents/{doc_id}")
 async def delete_document(request, doc_id: str):
-    """Delete a document"""
-    global documents
-    documents = [doc for doc in documents if doc["id"] != doc_id]
-    return JSONResponse({"message": "Document deleted"})
+    """Delete a document from RAG system"""
+    deleted = await rag.delete_documents([doc_id])
+    
+    if deleted:
+        return JSONResponse({"message": "Document deleted"})
+    else:
+        return JSONResponse({"error": "Document not found"}, status_code=404)
 
 
 @app.delete("/api/documents")
 async def clear_documents(request):
-    """Clear all documents"""
-    global documents
-    documents = []
+    """Clear all documents from RAG system"""
+    # Clear vector store
+    await vector_store.clear()
+    # Clear RAG documents dict
+    rag.documents.clear()
     return JSONResponse({"message": "All documents cleared"})
 
 
@@ -210,7 +153,7 @@ async def clear_documents(request):
 
 @app.post("/api/rag/search")
 async def search(request):
-    """Search documents by query"""
+    """Search documents by query using RAG system"""
     body = await request.json()
     query = body.get("query", "")
     top_k = body.get("top_k", 3)
@@ -219,15 +162,21 @@ async def search(request):
         return JSONResponse({"error": "Query is required"}, status_code=400)
     
     try:
-        # Get query embedding
-        query_embedding = await get_embedding(query)
-        
-        # Search documents
-        results = search_documents(query_embedding, top_k)
+        # Search using RAG system's query method
+        result = await rag.query(query, top_k=top_k)
         
         return JSONResponse({
             "query": query,
-            "results": results
+            "results": [
+                {
+                    "id": doc_data["document"]["id"],
+                    "text": doc_data["document"]["text"],
+                    "metadata": doc_data["document"]["metadata"],
+                    "similarity": doc_data["score"]
+                }
+                for doc_data in result["retrieved_documents"]
+            ],
+            "total": result["total_retrieved"]
         })
     
     except Exception as e:
@@ -241,8 +190,7 @@ async def search(request):
 async def rag_chat(request, conversation_id: str):
     """Chat with RAG - AI answers based on document context"""
     # Get or create conversation
-    if conversation_id not in conversations:
-        conversations[conversation_id] = []
+    conversation = conversation_manager.get_or_create_conversation(conversation_id)
     
     # Get message from request
     body = await request.json()
@@ -251,69 +199,37 @@ async def rag_chat(request, conversation_id: str):
     if not message:
         return JSONResponse({"error": "Message is required"}, status_code=400)
     
-    if not documents:
+    if len(await rag.list_documents()) == 0:
         return JSONResponse(
             {"error": "No documents uploaded. Please upload documents first."},
             status_code=400
         )
     
     try:
-        # 1. Get query embedding
-        query_embedding = await get_embedding(message)
+        # Add user message to history
+        conversation.add_message("user", message)
         
-        # 2. Search relevant documents
-        relevant_docs = search_documents(query_embedding, top_k=3)
+        # Use RAG system to answer the question
+        result = await rag.answer(message, top_k=3)
         
-        # 3. Build context from relevant documents
-        context = "\n\n".join([
-            f"Document {i+1} (similarity: {doc['similarity']:.2f}):\n{doc['text']}"
-            for i, doc in enumerate(relevant_docs)
-        ])
-        
-        # 4. Add user message to history
-        conversations[conversation_id].append({
-            "role": "user",
-            "content": message
-        })
-        
-        # 5. Build prompt with context
-        system_prompt = f"""You are a helpful AI assistant. Answer questions based on the provided context.
-
-Context from documents:
-{context}
-
-Instructions:
-- Answer based on the context above
-- If the answer is not in the context, say "I don't have enough information to answer that"
-- Be concise and accurate
-- Cite which document you're using if relevant"""
-        
-        # 6. Build messages for API
-        messages = [{"role": "system", "content": system_prompt}]
-        messages.extend(conversations[conversation_id])
-        
-        # 7. Get AI response
-        response = await call_llm(messages, temperature=0.7)
-        
-        # 8. Add assistant response to history
-        conversations[conversation_id].append({
-            "role": "assistant",
-            "content": response
-        })
+        # Add assistant response to history
+        conversation.add_message("assistant", result["answer"])
         
         return JSONResponse({
             "conversation_id": conversation_id,
             "user_message": message,
-            "assistant_response": response,
+            "assistant_response": result["answer"],
             "relevant_documents": [
                 {
-                    "id": doc["id"],
-                    "similarity": doc["similarity"],
-                    "text": doc["text"][:200] + "..." if len(doc["text"]) > 200 else doc["text"]
+                    "id": source["id"],
+                    "similarity": source["score"],
+                    "text": doc_data["document"]["text"][:200] + "..." 
+                           if len(doc_data["document"]["text"]) > 200 
+                           else doc_data["document"]["text"]
                 }
-                for doc in relevant_docs
+                for doc_data, source in zip(result["retrieved_documents"], result["sources"])
             ],
-            "message_count": len(conversations[conversation_id])
+            "message_count": len(conversation.get_messages())
         })
     
     except Exception as e:
@@ -732,14 +648,19 @@ async def root(request):
 async def health(request):
     """Health check endpoint"""
     is_configured = GATEWAY_API_KEY and GATEWAY_API_KEY != "your-vercel-gateway-api-key-here"
+    docs = await rag.list_documents()
+    
     return JSONResponse({
         "status": "healthy",
-        "total_documents": len(documents),
-        "total_conversations": len(conversations),
+        "total_documents": len(docs),
+        "total_conversations": len(conversation_manager.list_conversations()),
+        "vector_store_size": vector_store.size(),
+        "embedding_dimension": embeddings.get_dimension(),
         "chat_model": CHAT_MODEL,
         "embedding_model": EMBEDDING_MODEL,
         "gateway": "Vercel AI Gateway",
-        "api_configured": is_configured
+        "api_configured": is_configured,
+        "modules_used": ["LLM", "RAG", "Embeddings", "ConversationManager", "InMemoryVectorStore"]
     })
 
 

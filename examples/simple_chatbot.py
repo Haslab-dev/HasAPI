@@ -6,10 +6,10 @@ No RAG, no complex dependencies - just pure chat!
 """
 
 import os
-import httpx
 from typing import List, Dict
 from quickapi import QuickAPI, JSONResponse
 from quickapi.middleware import CORSMiddleware
+from quickapi.ai import LLM, ConversationManager
 
 # Load environment variables
 from dotenv import load_dotenv
@@ -19,52 +19,33 @@ load_dotenv()
 # CONFIGURATION - Loaded from .env file
 # ============================================================================
 # Vercel AI Gateway
-GATEWAY_URL = "https://ai-gateway.vercel.sh/v1/chat/completions"
+GATEWAY_URL = "https://ai-gateway.vercel.sh/v1"
 GATEWAY_API_KEY = os.getenv("VERCEL_GATEWAY_API_KEY", "your-vercel-gateway-api-key-here")
 
 # Model (via Vercel Gateway)
 MODEL = os.getenv("CHAT_MODEL", "deepseek/deepseek-chat")
 # ============================================================================
 
-# In-memory conversation storage
-conversations: Dict[str, List[Dict[str, str]]] = {}
+# Initialize LLM with Vercel AI Gateway
+llm = LLM(
+    provider="openai",
+    api_key=GATEWAY_API_KEY,
+    base_url=GATEWAY_URL
+)
+
+# Initialize conversation manager (in-memory by default, can be swapped with SQLite later)
+conversation_manager = ConversationManager()
 
 # Create the app
 app = QuickAPI(title="Simple Chatbot", version="1.0.0", debug=True)
 app.middleware(CORSMiddleware(allow_origins=["*"]))
 
 
-async def call_llm(messages: List[Dict[str, str]], temperature: float = 0.7) -> str:
-    """Call LLM via Vercel AI Gateway"""
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            GATEWAY_URL,
-            headers={
-                "Authorization": f"Bearer {GATEWAY_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": MODEL,
-                "messages": messages,
-                "temperature": temperature,
-                "stream": False
-            },
-            timeout=30.0
-        )
-        
-        if response.status_code != 200:
-            raise Exception(f"API Error: {response.status_code} - {response.text}")
-        
-        result = response.json()
-        return result["choices"][0]["message"]["content"]
-
-
 @app.post("/api/chat/{conversation_id}")
 async def chat(request, conversation_id: str):
     """Send a message and get AI response"""
     # Get or create conversation
-    if conversation_id not in conversations:
-        conversations[conversation_id] = []
+    conversation = conversation_manager.get_or_create_conversation(conversation_id)
     
     # Get message from request
     body = await request.json()
@@ -74,32 +55,27 @@ async def chat(request, conversation_id: str):
         return JSONResponse({"error": "Message is required"}, status_code=400)
     
     # Add user message to history
-    conversations[conversation_id].append({
-        "role": "user",
-        "content": message
-    })
+    conversation.add_message("user", message)
     
     # Build messages for API (system + history)
     messages = [
         {"role": "system", "content": "You are a helpful AI assistant. Be concise and friendly."}
     ]
-    messages.extend(conversations[conversation_id])
+    messages.extend(conversation.get_context())
     
     try:
-        # Get AI response
-        response = await call_llm(messages, temperature=0.7)
+        # Get AI response using QuickAPI LLM
+        result = await llm.chat(messages, model=MODEL, temperature=0.7)
+        response = result["content"]
         
         # Add assistant response to history
-        conversations[conversation_id].append({
-            "role": "assistant",
-            "content": response
-        })
+        conversation.add_message("assistant", response)
         
         return JSONResponse({
             "conversation_id": conversation_id,
             "user_message": message,
             "assistant_response": response,
-            "message_count": len(conversations[conversation_id])
+            "message_count": len(conversation.get_messages())
         })
     
     except Exception as e:
@@ -112,21 +88,25 @@ async def chat(request, conversation_id: str):
 @app.get("/api/conversations/{conversation_id}")
 async def get_conversation(request, conversation_id: str):
     """Get conversation history"""
-    if conversation_id not in conversations:
+    conversation = conversation_manager.get_conversation(conversation_id)
+    
+    if not conversation:
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
     
+    messages = conversation.get_messages()
     return JSONResponse({
         "conversation_id": conversation_id,
-        "message_count": len(conversations[conversation_id]),
-        "messages": conversations[conversation_id]
+        "message_count": len(messages),
+        "messages": [msg.to_dict() for msg in messages]
     })
 
 
 @app.delete("/api/conversations/{conversation_id}")
 async def delete_conversation(request, conversation_id: str):
     """Delete a conversation"""
-    if conversation_id in conversations:
-        del conversations[conversation_id]
+    deleted = conversation_manager.delete_conversation(conversation_id)
+    
+    if deleted:
         return JSONResponse({"message": "Conversation deleted"})
     else:
         return JSONResponse({"error": "Conversation not found"}, status_code=404)
@@ -135,15 +115,19 @@ async def delete_conversation(request, conversation_id: str):
 @app.get("/api/conversations")
 async def list_conversations(request):
     """List all conversations"""
+    summaries = conversation_manager.get_conversation_summaries()
+    
     return JSONResponse({
         "conversations": [
             {
                 "conversation_id": conv_id,
-                "message_count": len(messages)
+                "message_count": summary["total_messages"],
+                "user_messages": summary["user_messages"],
+                "assistant_messages": summary["assistant_messages"]
             }
-            for conv_id, messages in conversations.items()
+            for conv_id, summary in summaries.items()
         ],
-        "total": len(conversations)
+        "total": len(summaries)
     })
 
 
@@ -445,7 +429,7 @@ async def health(request):
     is_configured = GATEWAY_API_KEY and GATEWAY_API_KEY != "your-vercel-gateway-api-key-here"
     return JSONResponse({
         "status": "healthy",
-        "total_conversations": len(conversations),
+        "total_conversations": len(conversation_manager.list_conversations()),
         "model": MODEL,
         "gateway": "Vercel AI Gateway",
         "gateway_url": GATEWAY_URL,
