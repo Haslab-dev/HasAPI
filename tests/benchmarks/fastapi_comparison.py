@@ -1,7 +1,7 @@
 """
-QuickAPI vs FastAPI Performance Comparison
+HasAPI vs FastAPI Performance Comparison
 
-Benchmark comparison between QuickAPI and FastAPI frameworks.
+Benchmark comparison between HasAPI and FastAPI frameworks.
 """
 
 import asyncio
@@ -75,11 +75,11 @@ def run_benchmark(test_name: str, test_func, iterations: int = 1000) -> Dict[str
     return result
 
 
-async def test_quickapi_hello():
-    """Test QuickAPI hello world"""
-    from quickapi import QuickAPI, JSONResponse
+async def test_hasapi_hello():
+    """Test HasAPI hello world"""
+    from hasapi import HasAPI, JSONResponse
     
-    app = QuickAPI()
+    app = HasAPI()
     
     @app.get("/")
     async def hello(request):
@@ -126,11 +126,11 @@ async def test_fastapi_hello():
     await app(scope, env.receive, env.send)
 
 
-async def test_quickapi_json():
-    """Test QuickAPI JSON response"""
-    from quickapi import QuickAPI, JSONResponse
+async def test_hasapi_json():
+    """Test HasAPI JSON response"""
+    from hasapi import HasAPI, JSONResponse
     
-    app = QuickAPI()
+    app = HasAPI()
     
     @app.get("/data")
     async def get_data(request):
@@ -195,17 +195,17 @@ async def test_fastapi_json():
 
 def run_comparison():
     """Run comparison benchmarks"""
-    print("🚀 QuickAPI vs FastAPI Performance Comparison")
+    print("🚀 HasAPI vs FastAPI Performance Comparison")
     print("=" * 60)
     print()
     
     results = {}
     
-    # QuickAPI benchmarks
-    print("📦 QuickAPI Benchmarks")
+    # HasAPI benchmarks
+    print("📦 HasAPI Benchmarks")
     print("-" * 60)
-    results['quickapi_hello'] = run_benchmark("QuickAPI Hello World", test_quickapi_hello, iterations=500)
-    results['quickapi_json'] = run_benchmark("QuickAPI JSON Response", test_quickapi_json, iterations=500)
+    results['hasapi_hello'] = run_benchmark("HasAPI Hello World", test_hasapi_hello, iterations=500)
+    results['hasapi_json'] = run_benchmark("HasAPI JSON Response", test_hasapi_json, iterations=500)
     
     # FastAPI benchmarks
     print("📦 FastAPI Benchmarks")
@@ -220,36 +220,36 @@ def run_comparison():
     print()
     
     print("Hello World Endpoint:")
-    quickapi_hello_avg = results['quickapi_hello']['avg_ms']
+    hasapi_hello_avg = results['hasapi_hello']['avg_ms']
     fastapi_hello_avg = results['fastapi_hello']['avg_ms']
-    speedup = fastapi_hello_avg / quickapi_hello_avg if quickapi_hello_avg > 0 else 0
-    print(f"  QuickAPI: {quickapi_hello_avg:.2f}ms")
+    speedup = fastapi_hello_avg / hasapi_hello_avg if hasapi_hello_avg > 0 else 0
+    print(f"  HasAPI: {hasapi_hello_avg:.2f}ms")
     print(f"  FastAPI:  {fastapi_hello_avg:.2f}ms")
     print(f"  Speedup:  {speedup:.2f}x {'faster' if speedup > 1 else 'slower'}")
     print()
     
     print("JSON Response Endpoint:")
-    quickapi_json_avg = results['quickapi_json']['avg_ms']
+    hasapi_json_avg = results['hasapi_json']['avg_ms']
     fastapi_json_avg = results['fastapi_json']['avg_ms']
-    speedup = fastapi_json_avg / quickapi_json_avg if quickapi_json_avg > 0 else 0
-    print(f"  QuickAPI: {quickapi_json_avg:.2f}ms")
+    speedup = fastapi_json_avg / hasapi_json_avg if hasapi_json_avg > 0 else 0
+    print(f"  HasAPI: {hasapi_json_avg:.2f}ms")
     print(f"  FastAPI:  {fastapi_json_avg:.2f}ms")
     print(f"  Speedup:  {speedup:.2f}x {'faster' if speedup > 1 else 'slower'}")
     print()
     
     # Overall winner
-    quickapi_total = quickapi_hello_avg + quickapi_json_avg
+    hasapi_total = hasapi_hello_avg + hasapi_json_avg
     fastapi_total = fastapi_hello_avg + fastapi_json_avg
     
     print("Overall Performance:")
-    print(f"  QuickAPI Total: {quickapi_total:.2f}ms")
+    print(f"  HasAPI Total: {hasapi_total:.2f}ms")
     print(f"  FastAPI Total:  {fastapi_total:.2f}ms")
     
-    if quickapi_total < fastapi_total:
-        speedup = fastapi_total / quickapi_total
-        print(f"  🏆 QuickAPI is {speedup:.2f}x faster overall!")
+    if hasapi_total < fastapi_total:
+        speedup = fastapi_total / hasapi_total
+        print(f"  🏆 HasAPI is {speedup:.2f}x faster overall!")
     else:
-        speedup = quickapi_total / fastapi_total
+        speedup = hasapi_total / fastapi_total
         print(f"  FastAPI is {speedup:.2f}x faster overall")
     
     print()

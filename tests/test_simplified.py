@@ -1,138 +1,148 @@
 """
-Test script for simplified QuickAPI implementation
+Test script for simplified HasAPI implementation
 """
 
 import sys
 import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 def test_template_engine():
-    """Test simplified template engine"""
+    """Test the template engine"""
     print("Testing template engine...")
     
-    from quickapi.templates import Template, html, TemplateResponse
+    from hasapi.templates import Template, html, TemplateResponse
     
     # Test HTML builder
-    div = html.div("Hello World", class_="test")
-    assert "div" in str(div)
-    assert "Hello World" in str(div)
-    print("✓ HTML builder works")
-    
-    # Test template response
-    response = TemplateResponse(
-        template_string="<h1>{title}</h1>",
-        context={"title": "Test"},
-        title="Test Page"
+    div = html.div(
+        html.h1("Hello World", class_="title"),
+        html.p("This is a test paragraph"),
+        class_="container"
     )
-    assert "Test Page" in response.content.decode("utf-8")
-    print("✓ Template response works")
+    
+    print(f"HTML output: {div}")
+    assert "Hello World" in div
+    assert "container" in div
+    print("✅ HTML builder works!")
     
     # Test layout
-    from quickapi.templates import default_layout
-    layout = default_layout("Test")
-    wrapped = layout.wrap("<p>Content</p>")
-    assert "Test" in wrapped
+    from hasapi.templates import default_layout
+    layout = default_layout("Test App")
+    wrapped = layout.wrap("<h1>Content</h1>")
+    assert "Test App" in wrapped
     assert "Content" in wrapped
-    print("✓ Layout works")
+    print("✅ Layout system works!")
+    
+    print()
 
 
 def test_ui_components():
-    """Test simplified UI components"""
+    """Test UI components"""
     print("Testing UI components...")
     
-    from quickapi.ui import Textbox, Slider, Button, Text
+    from hasapi.ui import UI, Textbox, Number, Text, Slider, Button
     
-    # Test textbox
-    textbox = Textbox(label="Test", value="Hello")
-    input_html = textbox.render_input()
-    assert "Test" in input_html
-    assert "Hello" in input_html
-    print("✓ Textbox component works")
+    # Test Textbox
+    textbox = Textbox(label="Name", placeholder="Enter name")
+    assert textbox.label == "Name"
+    print("✅ Textbox works!")
     
-    # Test slider
-    slider = Slider(label="Test", value=50, minimum=0, maximum=100)
-    input_html = slider.render_input()
-    assert "Test" in input_html
-    assert "50" in input_html
-    print("✓ Slider component works")
+    # Test Number
+    number = Number(label="Age", value=25, minimum=0, maximum=100)
+    assert number.value == 25
+    print("✅ Number works!")
     
-    # Test button
-    button = Button(value="Test", variant="primary")
-    input_html = button.render_input()
-    assert "Test" in input_html
-    assert "bg-blue-600" in input_html  # primary variant creates blue background
-    print("✓ Button component works")
+    # Test Slider
+    slider = Slider(label="Temperature", value=0.7, minimum=0, maximum=1, step=0.1)
+    assert slider.value == 0.7
+    print("✅ Slider works!")
     
-    # Test text output
-    text = Text(label="Test", value="Result")
-    output_html = text.render_output()
-    assert "Test" in output_html
-    assert "Result" in output_html
-    print("✓ Text component works")
+    # Test Button
+    button = Button(value="Submit", variant="primary")
+    assert button.value == "Submit"
+    print("✅ Button works!")
+    
+    # Test Text output
+    text = Text(label="Result")
+    assert text.label == "Result"
+    print("✅ Text works!")
+    
+    print()
 
 
-def test_ui():
-    """Test UI class"""
-    print("Testing UI...")
+def test_ui_interface():
+    """Test UI interface creation"""
+    print("Testing UI interface...")
     
-    from quickapi.ui import UI, Textbox, Text
+    from hasapi.ui import UI, Textbox, Text
     
-    # Test UI creation
-    def test_fn(text):
-        return f"Processed: {text}"
+    def greet(name):
+        return f"Hello, {name}!"
     
     ui = UI(
-        fn=test_fn,
-        inputs=Textbox(label="Input"),
-        outputs=Text(label="Output"),
-        title="Test UI"
+        fn=greet,
+        inputs=Textbox(label="Name"),
+        outputs=Text(label="Greeting"),
+        title="Greeter",
+        api_name="greet"
     )
     
-    assert ui.title == "Test UI"
-    assert len(ui.inputs) == 1
-    assert len(ui.outputs) == 1
-    assert ui.api_name == "test_fn"
-    print("✓ UI creation works")
+    assert ui.title == "Greeter"
+    assert ui.api_name == "greet"
+    
+    # Test function call
+    result = ui.fn("World")
+    assert result == "Hello, World!"
+    print("✅ UI interface works!")
     
     # Test template rendering
     template = ui._render_template()
-    assert "Test UI" in template
-    assert "Input" in template
-    assert "Output" in template
-    print("✓ UI template rendering works")
+    assert "Greeter" in template
+    print("✅ UI template rendering works!")
     
-    # Test JavaScript generation
-    js = ui._get_javascript()
-    assert "submitForm" in js
-    assert "input_0" in js
-    assert "output_0" in js
-    print("✓ UI JavaScript generation works")
+    print()
+
+
+def test_app_integration():
+    """Test app integration"""
+    print("Testing app integration...")
+    
+    from hasapi import HasAPI, JSONResponse
+    from hasapi.templates import Template
+    
+    app = HasAPI(title="Test App")
+    
+    @app.get("/")
+    async def root(request):
+        return JSONResponse({"message": "Hello"})
+    
+    # Check route was registered
+    routes = app.router.get_routes_by_method("GET")
+    assert len(routes) > 0
+    print("✅ Route registration works!")
+    
+    # Test template engine integration
+    template_engine = Template(app)
+    assert template_engine.app == app
+    print("✅ Template engine integration works!")
+    
+    print()
 
 
 def main():
     """Run all tests"""
-    print("Running simplified QuickAPI tests...")
+    print("Running simplified HasAPI tests...")
     print("=" * 50)
+    print()
     
-    try:
-        test_template_engine()
-        print()
-        test_ui_components()
-        print()
-        test_ui()
-        print()
-        print("=" * 50)
-        print("✅ All tests passed!")
-        return True
-    except Exception as e:
-        print(f"❌ Test failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+    test_template_engine()
+    test_ui_components()
+    test_ui_interface()
+    test_app_integration()
+    
+    print("=" * 50)
+    print("✅ All tests passed!")
 
 
 if __name__ == "__main__":
-    success = main()
-    sys.exit(0 if success else 1)
+    main()

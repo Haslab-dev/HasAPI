@@ -1,35 +1,33 @@
 """
-Simple benchmark comparing QuickAPI, FastAPI, and Flask
+Simple benchmark comparing HasAPI, FastAPI, and Flask
 """
 import subprocess
 import time
-import sys
-import asyncio
 import httpx
+import asyncio
 from pathlib import Path
 
 
 def create_test_apps():
     """Create test applications"""
     
-    # QuickAPI app
-    quickapi_code = '''
+    # HasAPI app
+    hasapi_code = '''
 import sys
 sys.path.insert(0, '..')
-from quickapi import QuickAPI, JSONResponse
+from hasapi import HasAPI, JSONResponse
 
-app = QuickAPI(title="Benchmark", docs=False)
+app = HasAPI(title="Benchmark", docs=False)
 
 @app.get("/")
 async def root(request):
-    return JSONResponse({"message": "Hello World"})
+    return JSONResponse({"message": "Hello from HasAPI"})
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8001, log_level="error")
 '''
     
-    # FastAPI app
     fastapi_code = '''
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -38,14 +36,13 @@ app = FastAPI(docs_url=None, redoc_url=None)
 
 @app.get("/")
 async def root():
-    return JSONResponse({"message": "Hello World"})
+    return JSONResponse({"message": "Hello from FastAPI"})
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8002, log_level="error")
 '''
     
-    # Flask app
     flask_code = '''
 from flask import Flask, jsonify
 
@@ -53,143 +50,128 @@ app = Flask(__name__)
 
 @app.route("/")
 def root():
-    return jsonify({"message": "Hello World"})
+    return jsonify({"message": "Hello from Flask"})
 
 if __name__ == "__main__":
     from waitress import serve
-    serve(app, host="127.0.0.1", port=8003, threads=4)
+    serve(app, host="127.0.0.1", port=8003)
 '''
     
-    Path('_quickapi_test.py').write_text(quickapi_code)
+    Path('_hasapi_test.py').write_text(hasapi_code)
     Path('_fastapi_test.py').write_text(fastapi_code)
     Path('_flask_test.py').write_text(flask_code)
 
 
-async def benchmark_endpoint(url, num_requests=5000, concurrency=50):
-    """Benchmark a single endpoint with controlled concurrency"""
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        semaphore = asyncio.Semaphore(concurrency)
-        
-        async def make_request():
-            async with semaphore:
-                try:
-                    response = await client.get(url)
-                    return response.status_code == 200
-                except:
-                    return False
-        
+async def benchmark_endpoint(url: str, num_requests: int = 5000, concurrency: int = 50):
+    """Benchmark an endpoint"""
+    async with httpx.AsyncClient() as client:
         start_time = time.perf_counter()
         
-        tasks = [make_request() for _ in range(num_requests)]
-        results = await asyncio.gather(*tasks)
+        successful = 0
+        failed = 0
         
-        elapsed = time.perf_counter() - start_time
+        async def make_request():
+            nonlocal successful, failed
+            try:
+                response = await client.get(url, timeout=10.0)
+                if response.status_code == 200:
+                    successful += 1
+                else:
+                    failed += 1
+            except Exception:
+                failed += 1
         
-        successful = sum(1 for r in results if r)
-        failed = num_requests - successful
+        # Run requests in batches
+        for i in range(0, num_requests, concurrency):
+            batch_size = min(concurrency, num_requests - i)
+            tasks = [make_request() for _ in range(batch_size)]
+            await asyncio.gather(*tasks)
         
-        if successful > 0:
-            rps = successful / elapsed
-            avg_ms = (elapsed / successful) * 1000
-            return {
-                'total': num_requests,
-                'successful': successful,
-                'failed': failed,
-                'elapsed': elapsed,
-                'rps': rps,
-                'avg_ms': avg_ms
-            }
-        return None
+        end_time = time.perf_counter()
+        elapsed = end_time - start_time
+        
+        return {
+            'successful': successful,
+            'failed': failed,
+            'total_time': elapsed,
+            'rps': successful / elapsed if elapsed > 0 else 0,
+            'avg_latency': (elapsed / successful * 1000) if successful > 0 else 0
+        }
 
 
-def test_framework(name, port, script):
-    """Test a single framework"""
+def test_framework(name: str, port: int, script: str):
+    """Test a framework"""
     print(f"\n{'='*60}")
     print(f"Testing {name}")
     print(f"{'='*60}")
     
     # Start server
-    proc = subprocess.Popen(
-        [sys.executable, script],
+    print(f"Starting {name} server...")
+    process = subprocess.Popen(
+        ['python', script],
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        cwd='.'
+        stderr=subprocess.DEVNULL
     )
     
     # Wait for server to start
-    print(f"Starting {name} server...")
-    time.sleep(3)
+    time.sleep(2)
     
     # Check if server is running
-    url = f"http://127.0.0.1:{port}/"
     try:
-        import requests
-        for _ in range(10):
-            try:
-                r = requests.get(url, timeout=1)
-                if r.status_code == 200:
-                    print(f"✅ {name} is ready")
-                    break
-            except:
-                time.sleep(0.5)
+        response = httpx.get(f'http://127.0.0.1:{port}/', timeout=5.0)
+        if response.status_code == 200:
+            print(f"✅ {name} is ready")
         else:
-            print(f"❌ {name} failed to start")
-            proc.terminate()
+            print(f"❌ {name} returned status {response.status_code}")
+            process.terminate()
             return None
-        
-        # Run benchmark
-        print(f"Running benchmark (5000 requests, 50 concurrent)...")
-        result = asyncio.run(benchmark_endpoint(url, 5000, 50))
-        
-        if result:
-            print(f"  Successful: {result['successful']}/{result['total']}")
-            print(f"  Failed: {result['failed']}")
-            print(f"  Total time: {result['elapsed']:.2f}s")
-            print(f"  Requests/sec: {result['rps']:.0f}")
-            print(f"  Avg latency: {result['avg_ms']:.2f}ms")
-        
-        proc.terminate()
-        proc.wait()
-        return result
-        
     except Exception as e:
-        print(f"❌ Error: {e}")
-        proc.terminate()
-        proc.wait()
+        print(f"❌ {name} failed to start: {e}")
+        process.terminate()
         return None
+    
+    # Run benchmark
+    print(f"Running benchmark (5000 requests, 50 concurrent)...")
+    result = asyncio.run(benchmark_endpoint(f'http://127.0.0.1:{port}/'))
+    
+    print(f"  Successful: {result['successful']}/5000")
+    print(f"  Failed: {result['failed']}")
+    print(f"  Total time: {result['total_time']:.2f}s")
+    print(f"  RPS: {result['rps']:.0f}")
+    print(f"  Avg latency: {result['avg_latency']:.2f}ms")
+    
+    # Stop server
+    process.terminate()
+    process.wait()
+    
+    return result
 
 
 def main():
-    print("🚀 QuickAPI vs FastAPI vs Flask Benchmark")
+    print("🚀 HasAPI vs FastAPI vs Flask Benchmark")
     print("="*60)
     
-    # Install dependencies
+    # Create test apps
+    create_test_apps()
+    
+    # Check dependencies
     try:
         import httpx
-    except ImportError:
-        print("Installing httpx...")
-        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "httpx"])
-    
-    try:
-        import flask
-    except ImportError:
-        print("Installing flask and waitress...")
-        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "flask", "waitress"])
-    
-    # Create test apps
-    print("\nCreating test applications...")
-    create_test_apps()
-    print("✅ Test apps created")
+        import uvicorn
+    except ImportError as e:
+        print(f"Missing dependency: {e}")
+        print("Install with: pip install httpx uvicorn")
+        return
     
     # Run benchmarks
     results = {}
-    results['QuickAPI'] = test_framework('QuickAPI', 8001, '_quickapi_test.py')
+    results['HasAPI'] = test_framework('HasAPI', 8001, '_hasapi_test.py')
     results['FastAPI'] = test_framework('FastAPI', 8002, '_fastapi_test.py')
     results['Flask'] = test_framework('Flask', 8003, '_flask_test.py')
     
-    # Print comparison
+    # Print summary
     print("\n" + "="*60)
-    print("📊 RESULTS COMPARISON")
+    print("📊 Results Summary")
     print("="*60)
     
     valid_results = {k: v for k, v in results.items() if v is not None}
@@ -199,28 +181,29 @@ def main():
         print("|-----------|--------|------------------|--------------|")
         
         for name, result in valid_results.items():
-            success_rate = (result['successful'] / result['total']) * 100
-            print(f"| {name:9} | {result['rps']:6.0f} | {result['avg_ms']:16.2f} | {success_rate:11.1f}% |")
+            success_rate = result['successful'] / 5000 * 100
+            print(f"| {name:9} | {result['rps']:6.0f} | {result['avg_latency']:16.2f} | {success_rate:11.1f}% |")
         
         # Find winner
         winner = max(valid_results.items(), key=lambda x: x[1]['rps'])
         print(f"\n🥇 Winner: {winner[0]} with {winner[1]['rps']:.0f} requests/second")
         
         # Calculate speedup
-        if 'QuickAPI' in valid_results and 'FastAPI' in valid_results:
-            speedup = valid_results['QuickAPI']['rps'] / valid_results['FastAPI']['rps']
-            print(f"   QuickAPI is {speedup:.2f}x {'faster' if speedup > 1 else 'slower'} than FastAPI")
+        if 'HasAPI' in valid_results and 'FastAPI' in valid_results:
+            speedup = valid_results['HasAPI']['rps'] / valid_results['FastAPI']['rps']
+            print(f"   HasAPI is {speedup:.2f}x {'faster' if speedup > 1 else 'slower'} than FastAPI")
         
-        if 'QuickAPI' in valid_results and 'Flask' in valid_results:
-            speedup = valid_results['QuickAPI']['rps'] / valid_results['Flask']['rps']
-            print(f"   QuickAPI is {speedup:.2f}x {'faster' if speedup > 1 else 'slower'} than Flask")
+        if 'HasAPI' in valid_results and 'Flask' in valid_results:
+            speedup = valid_results['HasAPI']['rps'] / valid_results['Flask']['rps']
+            print(f"   HasAPI is {speedup:.2f}x {'faster' if speedup > 1 else 'slower'} than Flask")
     
     # Cleanup
     print("\n🧹 Cleaning up...")
-    Path('_quickapi_test.py').unlink(missing_ok=True)
+    Path('_hasapi_test.py').unlink(missing_ok=True)
     Path('_fastapi_test.py').unlink(missing_ok=True)
     Path('_flask_test.py').unlink(missing_ok=True)
-    print("✅ Done!")
+    
+    print("Done!")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 """
-QuickAPI Test Suite
+HasAPI Test Suite
 
-Test framework for QuickAPI components.
+Test framework for HasAPI components.
 """

@@ -1,14 +1,18 @@
 """
-Minimal QuickAPI Example
+Minimal HasAPI Example
 
-A simple example showing the basic QuickAPI functionality.
+A simple example showing the basic HasAPI functionality.
 """
 
-from quickapi import QuickAPI, JSONResponse
-from quickapi.middleware import CORSMiddleware
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from hasapi import HasAPI, JSONResponse
+from hasapi.middleware import CORSMiddleware
 
 # Create the app
-app = QuickAPI(title="Minimal API", version="1.0.0", debug=True)
+app = HasAPI(title="Minimal API", version="1.0.0", debug=True)
 
 # Add CORS middleware
 app.middleware(CORSMiddleware(allow_origins=["*"]))
@@ -17,12 +21,12 @@ app.middleware(CORSMiddleware(allow_origins=["*"]))
 @app.get("/")
 async def root(request):
     """Root endpoint"""
-    return JSONResponse({"message": "Hello from QuickAPI!"})
+    return JSONResponse({"message": "Hello from HasAPI!"})
 
 @app.get("/health")
 async def health(request):
     """Health check endpoint"""
-    return JSONResponse({"status": "healthy", "framework": "QuickAPI"})
+    return JSONResponse({"status": "healthy", "framework": "HasAPI"})
 
 @app.get("/users/{user_id}")
 async def get_user(request, user_id: str):

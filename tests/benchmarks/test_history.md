@@ -6,13 +6,13 @@ hy4-mac-002@HY4-MAC-002 benchmarks % python simple_benchmark.py
 
 | Framework | RPS    | Avg Latency (ms) | Success Rate |
 |-----------|--------|------------------|--------------|
-| QuickAPI  |    734 |             1.36 |       100.0% |
+| HasAPI  |    734 |             1.36 |       100.0% |
 | FastAPI   |   2109 |             0.47 |       100.0% |
 | Flask     |   1844 |             0.54 |       100.0% |
 
 🥇 Winner: FastAPI with 2109 requests/second
-   QuickAPI is 0.35x slower than FastAPI
-   QuickAPI is 0.40x slower than Flask
+   HasAPI is 0.35x slower than FastAPI
+   HasAPI is 0.40x slower than Flask
 
 🧹 Cleaning up...
 ✅ Done!
@@ -20,17 +20,17 @@ hy4-mac-002@HY4-MAC-002 benchmarks % python simple_benchmark.py
 ## 2
 
 hy4-mac-002@HY4-MAC-002 benchmarks % python simple_benchmark.py
-🚀 QuickAPI vs FastAPI vs Flask Benchmark
+🚀 HasAPI vs FastAPI vs Flask Benchmark
 ============================================================
 
 Creating test applications...
 ✅ Test apps created
 
 ============================================================
-Testing QuickAPI
+Testing HasAPI
 ============================================================
-Starting QuickAPI server...
-✅ QuickAPI is ready
+Starting HasAPI server...
+✅ HasAPI is ready
 Running benchmark (5000 requests, 50 concurrent)...
   Successful: 5000/5000
   Failed: 0
@@ -68,13 +68,13 @@ Running benchmark (5000 requests, 50 concurrent)...
 
 | Framework | RPS    | Avg Latency (ms) | Success Rate |
 |-----------|--------|------------------|--------------|
-| QuickAPI  |   2226 |             0.45 |       100.0% |
+| HasAPI  |   2226 |             0.45 |       100.0% |
 | FastAPI   |    762 |             1.31 |       100.0% |
 | Flask     |   2040 |             0.49 |       100.0% |
 
-🥇 Winner: QuickAPI with 2226 requests/second
-   QuickAPI is 2.92x faster than FastAPI
-   QuickAPI is 1.09x faster than Flask
+🥇 Winner: HasAPI with 2226 requests/second
+   HasAPI is 2.92x faster than FastAPI
+   HasAPI is 1.09x faster than Flask
 
 🧹 Cleaning up...
 ✅ Done!

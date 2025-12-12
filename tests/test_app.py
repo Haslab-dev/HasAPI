@@ -1,20 +1,20 @@
-"""Tests for QuickAPI application"""
+"""Tests for HasAPI application"""
 
 import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from quickapi import QuickAPI, JSONResponse
-from quickapi.request import Request
-from quickapi.exceptions import HTTPException
+from hasapi import HasAPI, JSONResponse
+from hasapi.request import Request
+from hasapi.exceptions import HTTPException
 
 
-class TestQuickAPI:
-    """Test QuickAPI application functionality"""
+class TestHasAPI:
+    """Test HasAPI application functionality"""
     
     def setup_method(self):
         """Setup test app"""
-        self.app = QuickAPI(title="Test API", version="1.0.0", debug=True)
+        self.app = HasAPI(title="Test API", version="1.0.0", debug=True)
     
     async def test_root_route(self):
         """Test basic root route"""

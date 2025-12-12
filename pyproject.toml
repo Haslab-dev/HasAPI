@@ -3,13 +3,13 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "quickapi"
+name = "hasapi"
 version = "0.0.1"
 description = "Modern Python web framework for AI-native APIs (LLM + RAG + Streaming)"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}
 authors = [
-  { name="QuickAPI Team", email="team@quickapi.dev" }
+  { name="HasAPI Team", email="team@hasapi.dev" }
 ]
 readme = "README.md"
 keywords = ["ai", "api", "fastapi", "rag", "llm", "vector db", "asgi", "websocket"]
@@ -31,7 +31,6 @@ dependencies = [
   "websockets>=11.0"
 ]
 
-# Optional AI dependencies
 [project.optional-dependencies]
 ai = ["openai>=1.0", "anthropic>=0.5"]
 pytorch = ["torch>=2.0"]
@@ -41,16 +40,16 @@ vector = ["faiss-cpu>=1.7", "numpy>=1.24"]
 all = ["torch>=2.0", "onnxruntime>=1.15", "faiss-cpu>=1.7", "llama-cpp-python>=0.2", "openai>=1.0", "anthropic>=0.5", "numpy>=1.24"]
 
 [project.urls]
-Homepage = "https://github.com/quickapi/quickapi"
-Documentation = "https://quickapi.dev"
-Repository = "https://github.com/quickapi/quickapi"
-Issues = "https://github.com/quickapi/quickapi/issues"
+Homepage = "https://github.com/hasapi/hasapi"
+Documentation = "https://hasapi.dev"
+Repository = "https://github.com/hasapi/hasapi"
+Issues = "https://github.com/hasapi/hasapi/issues"
 
 [project.scripts]
-quickapi = "quickapi.cli:main"
+hasapi = "hasapi.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["quickapi*"]
+include = ["hasapi*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

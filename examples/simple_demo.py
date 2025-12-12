@@ -1,5 +1,5 @@
 """
-Simple QuickAPI Demo
+Simple HasAPI Demo
 
 Demonstrates the simplified template engine and UI components.
 """
@@ -7,12 +7,12 @@ Demonstrates the simplified template engine and UI components.
 import sys
 import os
 
-# Add parent directory to path so we can import quickapi
+# Add parent directory to path so we can import hasapi
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from quickapi import QuickAPI
-from quickapi.templates import Template, html, TemplateResponse, default_layout
-from quickapi.ui import UI, Textbox, Slider, Text, Button, Number
+from hasapi import HasAPI
+from hasapi.templates import Template, html, TemplateResponse, default_layout
+from hasapi.ui import UI, Textbox, Slider, Text, Button, Number
 
 
 # ============================================================================
@@ -53,7 +53,7 @@ async def template_demo(request):
     """Simple template UI demo using SimpleTemplate engine"""
     return {
         "title": "📄 Simple Template Demo",
-        "message": "Hello from the QuickAPI simplified template engine!",
+        "message": "Hello from the HasAPI simplified template engine!",
         "item1": "Feature-rich template engine",
         "item2": "Server-side rendering", 
         "item3": "Dynamic content generation",
@@ -68,7 +68,7 @@ async def advanced_template_demo(request):
     return {
         "title": "🎨 Advanced Template Demo",
         "current_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "user_name": "QuickAPI User",
+        "user_name": "HasAPI User",
         "user_email": "user@example.com",
         "template_vars": 12,
         "feature1": "Real-time generation",
@@ -86,7 +86,7 @@ async def advanced_template_demo(request):
 
 def create_app():
     """Create the demo application"""
-    app = QuickAPI(title="Simple QuickAPI Demo")
+    app = HasAPI(title="Simple HasAPI Demo")
     
     # Initialize template engine
     template_engine = Template(app)
@@ -140,13 +140,13 @@ def create_app():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simple QuickAPI Demo</title>
+    <title>Simple HasAPI Demo</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-50 min-h-screen">
     <div class="container mx-auto px-4 py-8">
         <div class="text-center mb-8">
-            <h1 class="text-4xl font-bold text-gray-900 mb-4">🚀 Simple QuickAPI Demo</h1>
+            <h1 class="text-4xl font-bold text-gray-900 mb-4">🚀 Simple HasAPI Demo</h1>
             <p class="text-xl text-gray-600 mb-8">Minimal template engine and UI components</p>
             <div class="flex justify-center gap-4 flex-wrap">
                 <a href="/template" class="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors">
@@ -167,7 +167,7 @@ def create_app():
 </body>
 </html>
         """
-        from quickapi.response import HTMLResponse
+        from hasapi.response import HTMLResponse
         return HTMLResponse(html_content)
     
     @app.get("/sentiment")
@@ -202,7 +202,7 @@ def create_app():
 if __name__ == "__main__":
     app = create_app()
     
-    print("🚀 Simple QuickAPI Demo")
+    print("🚀 Simple HasAPI Demo")
     print("=" * 50)
     print("📄 Template UI:")
     print("   GET  /template")
