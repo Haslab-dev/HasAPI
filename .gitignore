@@ -59,4 +59,9 @@ htmlcov/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# Bun (native transport)
+hasapi/transport/node_modules/
+hasapi/transport/bun.lockb
+
 PRD.md

@@ -25,6 +25,8 @@ dependencies = [
   "httpx>=0.24",
   "orjson>=3.8",
   "uvicorn[standard]>=0.20",
+  "uvloop>=0.19; sys_platform != 'win32'",
+  "httptools>=0.6",
   "pydantic>=2.0",
   "typing-extensions>=4.5",
   "python-dotenv>=1.0",
@@ -37,7 +39,8 @@ pytorch = ["torch>=2.0"]
 onnx = ["onnxruntime>=1.15"]
 gguf = ["llama-cpp-python>=0.2"]
 vector = ["faiss-cpu>=1.7", "numpy>=1.24"]
-all = ["torch>=2.0", "onnxruntime>=1.15", "faiss-cpu>=1.7", "llama-cpp-python>=0.2", "openai>=1.0", "anthropic>=0.5", "numpy>=1.24"]
+benchmark = ["fastapi>=0.100"]
+all = ["torch>=2.0", "onnxruntime>=1.15", "faiss-cpu>=1.7", "llama-cpp-python>=0.2", "openai>=1.0", "anthropic>=0.5", "numpy>=1.24", "fastapi>=0.100"]
 
 [project.urls]
 Homepage = "https://github.com/hasapi/hasapi"

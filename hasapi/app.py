@@ -1,310 +1,228 @@
 """
-HasAPI Core Application
+HasAPI - High-performance Python API framework
+
+Features:
+- Cached routing (dict lookups)
+- Pre-bound handlers
+- orjson serialization
+- uvloop + httptools transport
 """
 
+from __future__ import annotations
 import asyncio
-import inspect
-from typing import Dict, List, Callable, Any, Optional, Union, Awaitable
-from urllib.parse import parse_qs
+import sys
+from typing import List, Callable, Optional, Dict, Any
 
-from .router import Router, Route
-from .response import Response, JSONResponse
-from .middleware import MiddlewareStack
-from .websocket import WebSocket
-from .exceptions import HTTPException, NotFoundException
-from .utils import get_logger
-
-logger = get_logger(__name__)
+from .core.engine import ExecutionEngine
+from .core.router import CompiledRoute
+from .core.request import FastRequest
+from .core.response import (
+    FastJSONResponse, FastHTMLResponse, FastTextResponse,
+    FastStreamingResponse, FastSSEResponse
+)
+from .transport import create_engine, TransportConfig
 
 
 class HasAPI:
     """
-    Main HasAPI application class.
+    High-performance HasAPI application.
     
-    This is the core ASGI application that handles routing, middleware,
-    and request processing.
+    Usage:
+        from hasapi import HasAPI
+        
+        app = HasAPI()
+        
+        @app.get("/")
+        async def index(request):
+            return {"message": "Hello, World!"}
+        
+        app.run()
     """
     
-    def __init__(self, title: str = "HasAPI", version: str = "0.0.1", debug: bool = False, docs: bool = True):
+    __slots__ = (
+        'title', 'version', 'debug', 'docs_enabled',
+        '_engine', '_transport_config', '_transport_type',
+        '_startup_handlers', '_shutdown_handlers'
+    )
+    
+    def __init__(
+        self,
+        title: str = "HasAPI",
+        version: str = "1.0.0",
+        debug: bool = False,
+        docs: bool = True,
+        host: str = '127.0.0.1',
+        port: int = 8000
+    ):
         self.title = title
         self.version = version
         self.debug = debug
         self.docs_enabled = docs
         
-        self.router = Router()
-        self.middleware_stack = MiddlewareStack()
-        self.state = {}
-        self.startup_handlers = []
-        self.shutdown_handlers = []
+        self._engine = ExecutionEngine()
+        self._transport_type = 'python'
+        self._transport_config = TransportConfig(
+            host=host,
+            port=port,
+            debug=debug
+        )
         
-        # Built-in middleware
-        self._setup_builtin_middleware()
+        self._startup_handlers: List[Callable] = []
+        self._shutdown_handlers: List[Callable] = []
         
-        # Setup automatic docs if enabled
-        if self.docs_enabled:
+        if docs:
             self._setup_docs()
     
-    def _setup_builtin_middleware(self):
-        """Setup built-in middleware"""
-        # Error handling middleware is always added
-        from .middleware.base import middleware
-        self.middleware_stack.add(middleware(self._error_handler))
-    
-    def route(self, path: str, methods: List[str] = None):
-        """Decorator for registering routes"""
+    def route(self, path: str, methods: List[str] = None) -> Callable:
+        """Register a route"""
         if methods is None:
-            methods = ["GET"]
+            methods = ['GET']
         
-        def decorator(func):
-            self.router.add_route(path, func, methods)
-            return func
+        def decorator(handler: Callable) -> Callable:
+            self._engine.add_route(path, handler, methods)
+            return handler
         return decorator
     
-    def get(self, path: str):
-        """Decorator for GET routes"""
-        return self.route(path, ["GET"])
+    def get(self, path: str) -> Callable:
+        """Register GET route"""
+        return self.route(path, ['GET'])
     
-    def post(self, path: str):
-        """Decorator for POST routes"""
-        return self.route(path, ["POST"])
+    def post(self, path: str) -> Callable:
+        """Register POST route"""
+        return self.route(path, ['POST'])
     
-    def put(self, path: str):
-        """Decorator for PUT routes"""
-        return self.route(path, ["PUT"])
+    def put(self, path: str) -> Callable:
+        """Register PUT route"""
+        return self.route(path, ['PUT'])
     
-    def delete(self, path: str):
-        """Decorator for DELETE routes"""
-        return self.route(path, ["DELETE"])
+    def delete(self, path: str) -> Callable:
+        """Register DELETE route"""
+        return self.route(path, ['DELETE'])
     
-    def patch(self, path: str):
-        """Decorator for PATCH routes"""
-        return self.route(path, ["PATCH"])
+    def patch(self, path: str) -> Callable:
+        """Register PATCH route"""
+        return self.route(path, ['PATCH'])
     
-    def options(self, path: str):
-        """Decorator for OPTIONS routes"""
-        return self.route(path, ["OPTIONS"])
+    def options(self, path: str) -> Callable:
+        """Register OPTIONS route"""
+        return self.route(path, ['OPTIONS'])
     
-    def head(self, path: str):
-        """Decorator for HEAD routes"""
-        return self.route(path, ["HEAD"])
+    def head(self, path: str) -> Callable:
+        """Register HEAD route"""
+        return self.route(path, ['HEAD'])
     
-    def docs(self, path: str = "/docs"):
-        """Decorator for documentation routes"""
-        def decorator(func):
-            async def docs_handler(request):
-                spec = self.get_openapi_spec()
-                from .docs import generate_swagger_ui
-                ui_html = generate_swagger_ui(spec)
-                from .response import HTMLResponse
-                return HTMLResponse(ui_html)
-            
-            # Register the route
-            self.route(path, ["GET"])(docs_handler)
-            return func
+    def on_startup(self, handler: Callable) -> Callable:
+        """Register startup handler"""
+        self._startup_handlers.append(handler)
+        return handler
+    
+    def on_shutdown(self, handler: Callable) -> Callable:
+        """Register shutdown handler"""
+        self._shutdown_handlers.append(handler)
+        return handler
+    
+    def _setup_docs(self) -> None:
+        """Setup OpenAPI documentation endpoints"""
         
-        return decorator
-    
-    def openapi(self, path: str = "/openapi.json"):
-        """Decorator for OpenAPI JSON route"""
-        def decorator(func):
-            async def openapi_handler(request):
-                spec = self.get_openapi_spec()
-                from .response import JSONResponse
-                return JSONResponse(spec)
-            
-            # Register the route
-            self.route(path, ["GET"])(openapi_handler)
-            return func
+        @self.get('/openapi.json')
+        async def openapi_spec(request: FastRequest):
+            return self._generate_openapi()
         
-        return decorator
-    
-    def websocket(self, path: str):
-        """Decorator for WebSocket routes"""
-        def decorator(func):
-            self.router.add_websocket_route(path, func)
-            return func
-        return decorator
-    
-    def middleware(self, middleware_class):
-        """Add middleware to the application"""
-        self.middleware_stack.add(middleware_class)
-        return middleware_class
-    
-    def on_event(self, event_type: str):
-        """Decorator for startup/shutdown event handlers"""
-        def decorator(func):
-            if event_type == "startup":
-                self.startup_handlers.append(func)
-            elif event_type == "shutdown":
-                self.shutdown_handlers.append(func)
-            else:
-                raise ValueError(f"Unknown event type: {event_type}")
-            return func
-        return decorator
-    
-    async def startup(self):
-        """Run startup handlers"""
-        for handler in self.startup_handlers:
-            if inspect.iscoroutinefunction(handler):
-                await handler()
-            else:
-                handler()
-    
-    async def shutdown(self):
-        """Run shutdown handlers"""
-        for handler in self.shutdown_handlers:
-            if inspect.iscoroutinefunction(handler):
-                await handler()
-            else:
-                handler()
-    
-    async def __call__(self, scope, receive, send):
-        """ASGI application entry point"""
-        if scope["type"] == "http":
-            await self._handle_http(scope, receive, send)
-        elif scope["type"] == "websocket":
-            await self._handle_websocket(scope, receive, send)
-        elif scope["type"] == "lifespan":
-            await self._handle_lifespan(scope, receive, send)
-        else:
-            raise ValueError(f"Unsupported scope type: {scope['type']}")
-    
-    async def _handle_http(self, scope, receive, send):
-        """Handle HTTP requests"""
-        try:
-            # Find route first (before creating request object)
-            route, path_params = self.router.match_route(
-                scope["method"], scope["path"]
-            )
-            
-            if not route:
-                raise NotFoundException(f"Route {scope['method']} {scope['path']} not found")
-            
-            # Create request object only after route is found
-            request = Request(scope, receive)
-            
-            # Apply middleware
-            response = await self.middleware_stack.process_request(
-                request, route.handler, path_params
-            )
-            
-            # Send response
-            await response(scope, receive, send)
-            
-        except Exception as exc:
-            await self._handle_exception(exc, scope, receive, send)
-    
-    async def _handle_websocket(self, scope, receive, send):
-        """Handle WebSocket connections"""
-        try:
-            # Find WebSocket route
-            ws_route = self.router.match_websocket_route(scope["path"])
-            
-            if not ws_route:
-                await WebSocket({"type": "websocket.close"}, receive, send).close(code=404)
-                return
-            
-            # Create WebSocket object
-            websocket = WebSocket(scope, receive, send)
-            
-            # Call WebSocket handler
-            await ws_route.handler(websocket)
-            
-        except Exception as exc:
-            logger.error(f"WebSocket error: {exc}")
-            try:
-                await WebSocket({"type": "websocket.close"}, receive, send).close(code=1011)
-            except:
-                pass
-    
-    async def _handle_lifespan(self, scope, receive, send):
-        """Handle lifespan events (startup/shutdown)"""
-        message = await receive()
-        if message["type"] == "lifespan.startup":
-            await self.startup()
-            await send({"type": "lifespan.startup.complete"})
-        elif message["type"] == "lifespan.shutdown":
-            await self.shutdown()
-            await send({"type": "lifespan.shutdown.complete"})
-    
-    async def _handle_exception(self, exc, scope, receive, send):
-        """Handle exceptions during request processing"""
-        if isinstance(exc, HTTPException):
-            response = JSONResponse(
-                {"detail": exc.detail}, 
-                status_code=exc.status_code
-            )
-        else:
-            logger.error(f"Unhandled exception: {exc}")
-            response = JSONResponse(
-                {"detail": "Internal Server Error"}, 
-                status_code=500
-            )
-        
-        await response(scope, receive, send)
-    
-    async def _error_handler(self, request, call_next, **kwargs):
-        """Built-in error handling middleware"""
-        try:
-            return await call_next(request, **kwargs)
-        except HTTPException:
-            raise  # Re-raise HTTP exceptions
-        except Exception as exc:
-            logger.error(f"Unhandled exception in middleware: {exc}")
-            return JSONResponse(
-                {"detail": "Internal Server Error"}, 
-                status_code=500
-            )
-    
-    def _setup_docs(self):
-        """Setup automatic OpenAPI documentation endpoints"""
-        from .docs import generate_openapi_spec
-        from .response import HTMLResponse
-        
-        # Add OpenAPI spec endpoint
-        @self.get("/openapi.json")
-        async def openapi_spec(request):
-            """OpenAPI specification"""
-            spec = generate_openapi_spec(self)
-            return JSONResponse(spec)
-        
-        # Add Swagger UI endpoint
-        @self.get("/docs")
-        async def swagger_ui(request):
-            """Swagger UI documentation"""
-            html = """
-<!DOCTYPE html>
+        @self.get('/docs')
+        async def swagger_ui(request: FastRequest):
+            html = f'''<!DOCTYPE html>
 <html>
 <head>
-    <title>API Documentation - {title}</title>
+    <title>{self.title} - API Docs</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
-    <style>
-        body {{ margin: 0; padding: 0; }}
-    </style>
 </head>
 <body>
     <div id="swagger-ui"></div>
     <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
     <script>
-        window.onload = function() {{
-            const ui = SwaggerUIBundle({{
-                url: '/openapi.json',
-                dom_id: '#swagger-ui',
-                presets: [
-                    SwaggerUIBundle.presets.apis,
-                    SwaggerUIBundle.SwaggerUIStandalonePreset
-                ],
-                layout: "BaseLayout",
-                deepLinking: true
-            }});
-        }}
+        SwaggerUIBundle({{
+            url: '/openapi.json',
+            dom_id: '#swagger-ui',
+            presets: [SwaggerUIBundle.presets.apis],
+            layout: "BaseLayout"
+        }});
     </script>
 </body>
-</html>
-            """.format(title=self.title)
-            return HTMLResponse(html)
-
-
-# Import Request class to avoid circular imports
-from .request import Request
-from .docs import generate_openapi_spec, generate_swagger_ui
+</html>'''
+            return FastHTMLResponse(html)
+    
+    def _generate_openapi(self) -> Dict[str, Any]:
+        """Generate OpenAPI specification"""
+        paths = {}
+        
+        for route in self._engine.get_routes():
+            if route.path.startswith('/openapi') or route.path.startswith('/docs'):
+                continue
+            
+            path_item = {}
+            for method in route.methods:
+                method_lower = method.lower()
+                path_item[method_lower] = {
+                    'summary': route.handler.__name__,
+                    'responses': {
+                        '200': {
+                            'description': 'Successful response',
+                            'content': {'application/json': {'schema': {'type': 'object'}}}
+                        }
+                    }
+                }
+                
+                if route.param_names:
+                    path_item[method_lower]['parameters'] = [
+                        {
+                            'name': param,
+                            'in': 'path',
+                            'required': True,
+                            'schema': {'type': 'string'}
+                        }
+                        for param in route.param_names
+                    ]
+            
+            paths[route.path] = path_item
+        
+        return {
+            'openapi': '3.0.0',
+            'info': {'title': self.title, 'version': self.version},
+            'paths': paths
+        }
+    
+    def run(self, host: str = None, port: int = None) -> None:
+        """Run the application."""
+        if host:
+            self._transport_config.host = host
+        if port:
+            self._transport_config.port = port
+        
+        transport = create_engine(self._transport_config)
+        transport.set_execution_engine(self._engine)
+        transport.run()
+    
+    async def __call__(self, scope: dict, receive: callable, send: callable) -> None:
+        """ASGI interface for uvicorn compatibility."""
+        if scope['type'] == 'http':
+            self._engine.compile()
+            request = FastRequest.from_scope(scope, receive)
+            response = await self._engine.execute(request)
+            await response(scope, receive, send)
+        
+        elif scope['type'] == 'lifespan':
+            message = await receive()
+            if message['type'] == 'lifespan.startup':
+                for handler in self._startup_handlers:
+                    if asyncio.iscoroutinefunction(handler):
+                        await handler()
+                    else:
+                        handler()
+                await send({'type': 'lifespan.startup.complete'})
+            elif message['type'] == 'lifespan.shutdown':
+                for handler in self._shutdown_handlers:
+                    if asyncio.iscoroutinefunction(handler):
+                        await handler()
+                    else:
+                        handler()
+                await send({'type': 'lifespan.shutdown.complete'})

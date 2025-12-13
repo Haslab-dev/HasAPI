@@ -125,21 +125,39 @@ services:
     print("✅ Created docker-compose.yml")
 
 
+def run_benchmark(endpoint: str = '/', duration: int = 10, connections: int = 100, output: str = None):
+    """Run performance benchmarks"""
+    from .benchmarks.cli import run_benchmarks
+    run_benchmarks(endpoint=endpoint, duration=duration, connections=connections, output=output)
+
+
 def main():
     """Main CLI entry point"""
     parser = argparse.ArgumentParser(description="HasAPI CLI Tool")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
     
+    # Create command
     create_parser = subparsers.add_parser("create", help="Create a new HasAPI project")
     create_parser.add_argument("name", help="Project name")
     create_parser.add_argument("--dir", help="Project directory")
     
+    # Run command
     run_parser = subparsers.add_parser("run", help="Run the development server")
     run_parser.add_argument("--app", default="app.py", help="App file")
     run_parser.add_argument("--host", default="0.0.0.0", help="Host")
     run_parser.add_argument("--port", type=int, default=8000, help="Port")
     run_parser.add_argument("--reload", action="store_true", help="Enable auto-reload")
+    run_parser.add_argument("--engine", choices=['native', 'python'], help="Transport engine")
     
+    # Benchmark command
+    bench_parser = subparsers.add_parser("benchmark", help="Run performance benchmarks")
+    bench_parser.add_argument("-e", "--endpoint", default="/", help="API endpoint to benchmark")
+    bench_parser.add_argument("-d", "--duration", type=int, default=10, help="Duration in seconds")
+    bench_parser.add_argument("-c", "--connections", type=int, default=100, help="Concurrent connections")
+    bench_parser.add_argument("-o", "--output", help="Output file for JSON results")
+    bench_parser.add_argument("--json", action="store_true", help="Benchmark /json endpoint")
+    
+    # Docker commands
     docker_parser = subparsers.add_parser("docker", help="Docker commands")
     docker_subparsers = docker_parser.add_subparsers(dest="docker_command")
     docker_subparsers.add_parser("file", help="Create Dockerfile")
@@ -151,6 +169,9 @@ def main():
         create_project(args.name, args.dir)
     elif args.command == "run":
         run_server(args.app, args.host, args.port, args.reload)
+    elif args.command == "benchmark":
+        endpoint = '/json' if args.json else args.endpoint
+        run_benchmark(endpoint, args.duration, args.connections, args.output)
     elif args.command == "docker":
         if args.docker_command == "file":
             create_dockerfile()
