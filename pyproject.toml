@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hasapi"
-version = "0.0.1"
+version = "0.1.1"
 description = "Modern Python web framework for AI-native APIs (LLM + RAG + Streaming)"
 requires-python = ">=3.10"
-license = {file = "LICENSE"}
+license = "MIT"
 authors = [
   { name="HasAPI Team", email="team@hasapi.dev" }
 ]
@@ -17,7 +17,6 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Framework :: AsyncIO",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent"
 ]
 
@@ -30,7 +29,8 @@ dependencies = [
   "pydantic>=2.0",
   "typing-extensions>=4.5",
   "python-dotenv>=1.0",
-  "websockets>=11.0"
+  "websockets>=11.0",
+  "PyJWT>=2.8.0"
 ]
 
 [project.optional-dependencies]
@@ -43,16 +43,17 @@ benchmark = ["fastapi>=0.100"]
 all = ["torch>=2.0", "onnxruntime>=1.15", "faiss-cpu>=1.7", "llama-cpp-python>=0.2", "openai>=1.0", "anthropic>=0.5", "numpy>=1.24", "fastapi>=0.100"]
 
 [project.urls]
-Homepage = "https://github.com/hasapi/hasapi"
-Documentation = "https://hasapi.dev"
-Repository = "https://github.com/hasapi/hasapi"
-Issues = "https://github.com/hasapi/hasapi/issues"
+Homepage = "https://github.com/Haslab-dev/HasAPI"
+Documentation = "https://github.com/Haslab-dev/HasAPI#readme"
+Repository = "https://github.com/Haslab-dev/HasAPI"
+Issues = "https://github.com/Haslab-dev/HasAPI/issues"
 
 [project.scripts]
 hasapi = "hasapi.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["hasapi*"]
+exclude = ["examples*", "tests*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

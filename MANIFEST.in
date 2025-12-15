@@ -1,0 +1,6 @@
+include README.md
+include LICENSE
+recursive-exclude examples *
+recursive-exclude tests *
+recursive-exclude __pycache__ *
+recursive-exclude *.pyc *
